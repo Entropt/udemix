@@ -16,8 +16,15 @@ def download_and_merge_m3u8(
         completed=0,
     )
 
-    response = requests.get(m3u8_file_url)
-    response.raise_for_status()
+    try:
+        response = requests.get(m3u8_file_url)
+        response.raise_for_status()
+    except Exception as e:
+        logger.error(
+            f"Failed to fetch m3u8 playlist for '{remove_emojis_and_binary(title_of_output_mp4)}': {e}"
+        )
+        progress.remove_task(task_id)
+        return
 
     m3u8_content = response.text
     m3u8_obj = m3u8.loads(m3u8_content)

@@ -8,15 +8,16 @@ def download_supplementary_assets(
 ):
     for asset in assets:
         match asset["asset_type"]:
-            case "File":
+            case "File" | "SourceCode":
                 process_files(udemy, asset, course_id, lecture_id, download_folder_path)
             case "ExternalLink":
                 process_external_links(
                     udemy, asset, course_id, lecture_id, download_folder_path
                 )
             case _:
-                pass
-                # Unsupported asset type. Please create a github issue if you'd like to add support for other types
+                logger.warning(
+                    f"Unsupported asset type '{asset['asset_type']}' for asset '{asset.get('filename', 'unknown')}'. Skipping."
+                )
 
 
 def process_files(udemy, asset, course_id, lecture_id, download_folder_path):
@@ -31,20 +32,45 @@ def process_files(udemy, asset, course_id, lecture_id, download_folder_path):
         logger.info(f"Skipped asset (already exists): {asset['filename']}")
         return
 
-    file_response = udemy.request(
-        udemy.request(
+    asset_type = asset["asset_type"]
+    try:
+        info_response = udemy.request(
             FILE_ASSET_URL.format(
                 course_id=course_id, lecture_id=lecture_id, asset_id=asset["id"]
             )
-        ).json()["download_urls"]["File"][0]["file"]
-    )
+        )
+        if info_response is None:
+            logger.error(
+                f"Failed to fetch asset info for '{asset['filename']}' (network error)"
+            )
+            return
 
-    file_response.raise_for_status()
+        asset_info = info_response.json()
 
-    with open(asset_file_path, "wb") as file:
-        for chunk in file_response.iter_content(chunk_size=8192):
-            if chunk:
-                file.write(chunk)
+        download_urls = asset_info.get("download_urls", {})
+        # The download URL key matches the asset_type (e.g., "File", "SourceCode")
+        url_list = download_urls.get(asset_type) or download_urls.get("File")
+        if not url_list:
+            logger.error(
+                f"No download URL found for asset '{asset['filename']}' (type: {asset_type})"
+            )
+            return
+
+        file_response = udemy.request(url_list[0]["file"])
+        if file_response is None:
+            logger.error(
+                f"Failed to download asset '{asset['filename']}' (network error)"
+            )
+            return
+
+        file_response.raise_for_status()
+
+        with open(asset_file_path, "wb") as file:
+            for chunk in file_response.iter_content(chunk_size=8192):
+                if chunk:
+                    file.write(chunk)
+    except Exception as e:
+        logger.error(f"Error downloading asset '{asset['filename']}': {e}")
 
 
 def process_external_links(udemy, asset, course_id, lecture_id, download_folder_path):
@@ -60,13 +86,23 @@ def process_external_links(udemy, asset, course_id, lecture_id, download_folder_
         logger.info(f"Skipped external link (already exists): {asset_filename}")
         return
 
-    response = udemy.request(
-        LINK_ASSET_URL.format(
-            course_id=course_id, lecture_id=lecture_id, asset_id=asset["id"]
+    try:
+        resp = udemy.request(
+            LINK_ASSET_URL.format(
+                course_id=course_id, lecture_id=lecture_id, asset_id=asset["id"]
+            )
         )
-    ).json()
+        if resp is None:
+            logger.error(
+                f"Failed to fetch external link for '{asset_filename}' (network error)"
+            )
+            return
 
-    asset_url = response["external_url"]
+        response = resp.json()
 
-    with open(asset_file_path, "w") as file:
-        file.write(f"[InternetShortcut]\nURL={asset_url}\n")
+        asset_url = response["external_url"]
+
+        with open(asset_file_path, "w") as file:
+            file.write(f"[InternetShortcut]\nURL={asset_url}\n")
+    except Exception as e:
+        logger.error(f"Error downloading external link '{asset_filename}': {e}")

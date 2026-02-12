@@ -34,17 +34,20 @@ def download_captions(
                 logger.info(f"Skipped caption (already exists): {caption_name}")
                 continue
 
-            response = requests.get(caption["url"])
-            response.raise_for_status()
-            with open(vtt_path, "wb") as file:
-                file.write(response.content)
+            try:
+                response = requests.get(caption["url"])
+                response.raise_for_status()
+                with open(vtt_path, "wb") as file:
+                    file.write(response.content)
 
-            if convert_to_srt:
-                srt_content = webvtt.read(vtt_path)
-                srt_content.save_as_srt(srt_path)
+                if convert_to_srt:
+                    srt_content = webvtt.read(vtt_path)
+                    srt_content.save_as_srt(srt_path)
 
-                # Remove VTT file
-                os.remove(vtt_path)
+                    # Remove VTT file
+                    os.remove(vtt_path)
+            except Exception as e:
+                logger.error(f"Error downloading caption '{caption_name}': {e}")
 
         else:
             print(
